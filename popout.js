@@ -170,7 +170,14 @@ class TooltipManager {
   }
 
   /* -------------------------------------------- */
-
+  _resolveEmbedded(parent, parts, {invalid=false}={}) {
+    let doc = parent;
+    while ( doc && (parts.length > 1) ) {
+      const [embeddedName, embeddedId] = parts.splice(0, 2);
+      doc = doc.getEmbeddedDocument(embeddedName, embeddedId, {invalid});
+    }
+    return doc;
+  }
   /**
    * Activate the tooltip for a hovered HTML element which defines a tooltip localization key.
    * @param {HTMLElement} element     The HTML element being hovered.
@@ -185,7 +192,7 @@ class TooltipManager {
    *                                      tooltip. If this is not provided, the CSS classes are acquired from the
    *                                      data-tooltip-class attribute of the element or one of its parents.
    */
-  activate(element, {text, direction, cssClass}={}) {
+  async activate(element, {text, direction, cssClass}={}) {
     // Check if the element still exists in the DOM.
     if ( !document.body.contains(element) ) return;
     this.#clearDeactivation();
@@ -194,7 +201,37 @@ class TooltipManager {
     this.#active = true;
     this.element = element;
     element.setAttribute("aria-describedby", "tooltip");
-    this.tooltip.innerHTML = text || game.i18n.localize(element.dataset.tooltip);
+    console.log(element);
+    console.log(element.dataset);
+    let uuid = element.dataset.referenceTooltip;
+    if  ( !uuid ) {
+      if  ( element.dataset.tooltip && element.dataset.tooltip.match(/data-uuid/) ) {
+        // Create a temporary div element and set its innerHTML to the tooltip string
+        let tempDiv = document.createElement('div');
+        tempDiv.innerHTML = element.dataset.tooltip;
+        // Get the first child of the temporary div which is the section element
+        let sectionElement = tempDiv.firstElementChild;
+        
+        // Get the data-uuid attribute
+        uuid = sectionElement.getAttribute('data-uuid');
+      }
+    }
+    console.log(uuid);
+    const {relative, invalid=false} = {};
+    let {collection, documentId, documentType, embedded, doc} = foundry.utils.parseUuid(uuid, {relative});
+    
+    console.log(collection, documentId, documentType, embedded, doc);
+    
+    //if ( collection instanceof CompendiumCollection ) {
+    if ( true ) {
+      //if ( documentType === "Folder" ) return collection.folders.get(documentId);
+      doc = await collection.getDocument(documentId);
+    }
+    if ( embedded.length ) doc = this._resolveEmbedded(doc, embedded, {invalid});
+    
+    let { content, classes } = await doc.system.richTooltip();
+    
+    this.tooltip.innerHTML = content;
 
     // Activate display of the tooltip
     this.tooltip.removeAttribute("class");
@@ -207,7 +244,7 @@ class TooltipManager {
     if ( !direction ) direction = this._determineDirection();
     this._setAnchor(direction);
   }
-
+  
   /* -------------------------------------------- */
 
   /**
@@ -438,8 +475,8 @@ window.tooltip_manager = new TooltipManager();
       y2: -Infinity,
     };
     Array.from(elem.getElementsByTagName("*"))
-      .map((item) => item.getBoundingClientRect())
-      .reduce(maxRectReducer, initialValue);
+        .map((item) => item.getBoundingClientRect())
+        .reduce(maxRectReducer, initialValue);
     return {
       x: initialValue.x,
       y: initialValue.y,
@@ -505,10 +542,10 @@ window.tooltip_manager = new TooltipManager();
         const result = Reflect.set(obj, prop, value);
         this.log("Intercept ui-window create", value);
         if (
-          value &&
-          value.options &&
-          value.options.popOut &&
-          !value.options.popOutModuleDisable
+            value &&
+            value.options &&
+            value.options.popOut &&
+            !value.options.popOutModuleDisable
         ) {
           this.addPopout(value).catch((err) => this.log(err));
         }
@@ -543,27 +580,27 @@ window.tooltip_manager = new TooltipManager();
     // the game keyboard class since it does not check all documents.
     // eslint-disable-next-line no-undef
     libWrapper.register(
-      "popout",
-      "game.keyboard.hasFocus",
-      () => {
-        const formElements = [
-          "input",
-          "select",
-          "textarea",
-          "option",
-          "button",
-          "[contenteditable]",
-        ];
-        const selector = formElements.map((el) => `${el}:focus`).join(", ");
-        var hasFocus = document.querySelectorAll(selector).length > 0;
-        for (const val of this.poppedOut.values()) {
-          hasFocus =
-            hasFocus ||
-            val.window.document.querySelectorAll(selector).length > 0;
-        }
-        return hasFocus;
-      },
-      "OVERRIDE"
+        "popout",
+        "game.keyboard.hasFocus",
+        () => {
+          const formElements = [
+            "input",
+            "select",
+            "textarea",
+            "option",
+            "button",
+            "[contenteditable]",
+          ];
+          const selector = formElements.map((el) => `${el}:focus`).join(", ");
+          var hasFocus = document.querySelectorAll(selector).length > 0;
+          for (const val of this.poppedOut.values()) {
+            hasFocus =
+                hasFocus ||
+                val.window.document.querySelectorAll(selector).length > 0;
+          }
+          return hasFocus;
+        },
+        "OVERRIDE"
     );
 
     // NOTE(posnet: 2020-07-12): we need to initialize TinyMCE to ensure its plugins,
@@ -572,7 +609,7 @@ window.tooltip_manager = new TooltipManager();
     // This will affect any module that lazy loads JavaScript. And require special handling.
     /* eslint-disable no-undef */
     const elem = $(
-      `<div style="display: none;"><p id="mce_init"> foo </p></div>`
+        `<div style="display: none;"><p id="mce_init"> foo </p></div>`
     );
     $("body").append(elem);
     const config = { target: elem[0], plugins: CONFIG.TinyMCE.plugins };
@@ -583,8 +620,8 @@ window.tooltip_manager = new TooltipManager();
 
   async addPopout(app) {
     if (
-      app._disable_popout_module !== undefined &&
-      app._disable_popout_module
+        app._disable_popout_module !== undefined &&
+        app._disable_popout_module
     ) {
       this.log("Ignoring app marked as do not popout", app);
       return;
@@ -597,9 +634,9 @@ window.tooltip_manager = new TooltipManager();
 
     let waitRender = Math.floor(this.MAX_TIMEOUT / this.TIMEOUT_INTERVAL);
     while (
-      app._state !== Application.RENDER_STATES.RENDERED && // eslint-disable-line no-undef
-      waitRender-- > 0
-    ) {
+        app._state !== Application.RENDER_STATES.RENDERED && // eslint-disable-line no-undef
+        waitRender-- > 0
+        ) {
       await new Promise((r) => setTimeout(r, this.TIMEOUT_INTERVAL));
     }
     // eslint-disable-next-line no-undef
@@ -622,9 +659,9 @@ window.tooltip_manager = new TooltipManager();
         buttonText = "";
       }
       const link = $(
-        `<a id="${domID}" class="popout-module-button"><i class="fas fa-external-link-alt" title="${game.i18n.localize(
-          "POPOUT.PopOut"
-        )}"></i>${buttonText}</a>`
+          `<a id="${domID}" class="popout-module-button"><i class="fas fa-external-link-alt" title="${game.i18n.localize(
+              "POPOUT.PopOut"
+          )}"></i>${buttonText}</a>`
       );
       /* eslint-enable no-undef */
 
@@ -757,12 +794,12 @@ window.tooltip_manager = new TooltipManager();
     // We copy any manually set styles on the root element to ensure that css variables are preserved.
     html.style.cssText = document.documentElement.style.cssText;
     const head = document.importNode(
-      document.getElementsByTagName("head")[0],
-      true
+        document.getElementsByTagName("head")[0],
+        true
     );
     const body = document.importNode(
-      document.getElementsByTagName("body")[0],
-      false
+        document.getElementsByTagName("body")[0],
+        false
     );
 
     for (const child of [...head.children]) {
@@ -897,9 +934,9 @@ window.tooltip_manager = new TooltipManager();
         currentState.window.focus();
         return;
       } else if (
-        currentState &&
-        currentState.window &&
-        currentState.window.closed
+          currentState &&
+          currentState.window &&
+          currentState.window.closed
       ) {
         this.poppedOut.delete(app.appId);
       }
@@ -966,16 +1003,16 @@ window.tooltip_manager = new TooltipManager();
         }
 
         $(child)
-          .html(
-            `<i class="fas fa-sign-in-alt" title="${game.i18n.localize(
-              "POPOUT.PopIn"
-            )}"></i>${buttonText}`
-          )
-          .off("click")
-          .on("click", (event) => {
-            popout._popout_dont_close = true;
-            popout.close();
-          });
+            .html(
+                `<i class="fas fa-sign-in-alt" title="${game.i18n.localize(
+                    "POPOUT.PopIn"
+                )}"></i>${buttonText}`
+            )
+            .off("click")
+            .on("click", (event) => {
+              popout._popout_dont_close = true;
+              popout.close();
+            });
         /* eslint-enable no-unused-vars, no-undef */
       }
       shallowHeader.appendChild(child);
@@ -1158,7 +1195,7 @@ window.tooltip_manager = new TooltipManager();
       });
       // Disable right-click
       popout.document.addEventListener("contextmenu", (ev) =>
-        ev.preventDefault()
+          ev.preventDefault()
       );
       // Disable mouse 3, 4, and 5
       popout.document.addEventListener("pointerdown", (ev) => {
@@ -1166,10 +1203,10 @@ window.tooltip_manager = new TooltipManager();
       });
 
       popout.addEventListener("keydown", (event) =>
-        window.keyboard._handleKeyboardEvent(event, false)
+          window.keyboard._handleKeyboardEvent(event, false)
       );
       popout.addEventListener("keyup", (event) =>
-        window.keyboard._handleKeyboardEvent(event, true)
+          window.keyboard._handleKeyboardEvent(event, true)
       );
 
       // COMPAT(posnet: 2022-09-17) v9
@@ -1183,21 +1220,21 @@ window.tooltip_manager = new TooltipManager();
         // `on\(("|')[^'"]+("|'), *("|')`
         const jBody = $(body); // eslint-disable-line no-undef
         jBody.on(
-          "click",
-          "a.entity-link",
-          window.TextEditor._onClickEntityLink !== undefined
-            ? window.TextEditor._onClickEntityLink
-            : window.TextEditor._onClickContentLink
+            "click",
+            "a.entity-link",
+            window.TextEditor._onClickEntityLink !== undefined
+                ? window.TextEditor._onClickEntityLink
+                : window.TextEditor._onClickContentLink
         );
         jBody.on(
-          "dragstart",
-          "a.entity-link",
-          window.TextEditor._onDragEntityLink
+            "dragstart",
+            "a.entity-link",
+            window.TextEditor._onDragEntityLink
         );
         jBody.on(
-          "click",
-          "a.inline-roll",
-          window.TextEditor._onClickInlineRoll
+            "click",
+            "a.inline-roll",
+            window.TextEditor._onClickInlineRoll
         );
       } else {
         // From: TextEditor.activateListeners();
@@ -1208,29 +1245,29 @@ window.tooltip_manager = new TooltipManager();
         // `on\(("|')[^'"]+("|'), *("|')`
         const jBody = $(body); // eslint-disable-line no-undef
         jBody.on(
-          "click",
-          "a.content-link",
-          window.TextEditor._onClickEntityLink !== undefined
-            ? window.TextEditor._onClickEntityLink
-            : window.TextEditor._onClickContentLink
+            "click",
+            "a.content-link",
+            window.TextEditor._onClickEntityLink !== undefined
+                ? window.TextEditor._onClickEntityLink
+                : window.TextEditor._onClickContentLink
         );
         jBody.on(
-          "dragstart",
-          "a.content-link",
-          window.TextEditor._onDragEntityLink !== undefined
-            ? window.TextEditor._onDragEntityLink
-            : window.TextEditor._onDragContentLink
+            "dragstart",
+            "a.content-link",
+            window.TextEditor._onDragEntityLink !== undefined
+                ? window.TextEditor._onDragEntityLink
+                : window.TextEditor._onDragContentLink
         );
         jBody.on(
-          "click",
-          "a.inline-roll",
-          window.TextEditor._onClickInlineRoll
+            "click",
+            "a.inline-roll",
+            window.TextEditor._onClickInlineRoll
         );
       }
 
       popout.game = game; // eslint-disable-line no-undef
       popout.tooltip_manager.tooltip =
-        popout.document.getElementById("tooltip");
+          popout.document.getElementById("tooltip");
       popout.tooltip_manager.activateEventListeners();
 
       this.log("Final node", node, app);
@@ -1291,8 +1328,8 @@ window.tooltip_manager = new TooltipManager();
     app.setPosition = (...args) => {
       if (this.poppedOut.has(app.appId)) {
         this.log(
-          "Intercepted application setting position",
-          app.constructor.name
+            "Intercepted application setting position",
+            app.constructor.name
         );
         return {};
       }
@@ -1329,8 +1366,8 @@ Hooks.on("ready", () => {
       app._viewer = false;
       if (app.pdfData && app.pdfData.url !== undefined) {
         app.open(
-          new URL(app.pdfData.url, window.location).href,
-          app.pdfData.offset
+            new URL(app.pdfData.url, window.location).href,
+            app.pdfData.offset
         );
       }
       if (app.onViewerReady !== undefined) {
